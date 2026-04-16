@@ -55,8 +55,8 @@ timerinit()
   // enable supervisor-mode timer interrupts.
   w_mie(r_mie() | MIE_STIE);
   
-  // enable the sstc extension (i.e. stimecmp).
-  w_menvcfg(r_menvcfg() | (1L << 63)); 
+  // enable the sstc extension (i.e. stimecmp) and hardware A/D bit updates.
+  w_menvcfg(r_menvcfg() | (1L << 63) | (1L << 61));
   
   // allow supervisor to use stimecmp and time.
   w_mcounteren(r_mcounteren() | 2);
