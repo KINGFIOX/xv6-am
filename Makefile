@@ -187,8 +187,40 @@ nemu: $K/kernel.bin fs.img
 
 NPC = $(NPC_HOME)/build/npc-build/npc
 
+# NPC runtime knobs.  Override on the command line, e.g.
+#   make npc NVBOARD=0             # headless run (no SDL window)
+#   make npc BATCH=0               # drop into the interactive sdb instead of batch
+#
+# Tracing: set TRACE=1 to enable all four trace streams, or enable them
+# individually via ITRACE=1 / DTRACE=1 / MTRACE=1 / FTRACE=1.  Each enabled
+# stream is written live to build/trace/<name>.log, which you can follow with
+# `tail -f build/trace/ftrace.log` from another terminal while NPC runs.
+#
+# Special: FTRACE_STDOUT=1 mirrors every ftrace entry to NPC's stdout as it
+# happens.  Handy when debugging a stuck boot (e.g. xv6 stopping at
+# `xv6 kernel is booting`): enabling it also implies FTRACE=1 so you still
+# get the file copy for later inspection.
+NPC_TRACE_DIR  ?= build/trace
+BATCH          ?= 1
+NVBOARD        ?= 1
+
+NPCFLAGS  = --image=$K/kernel.bin --fsimg=fs.img
+ifeq ($(BATCH),1)
+NPCFLAGS += --batch
+endif
+ifeq ($(NVBOARD),1)
+NPCFLAGS += --nvboard
+endif
+
+NPCFLAGS += --itrace_log=$(NPC_TRACE_DIR)/itrace.log
+NPCFLAGS += --dtrace_log=$(NPC_TRACE_DIR)/dtrace.log
+NPCFLAGS += --mtrace_log=$(NPC_TRACE_DIR)/mtrace.log
+NPCFLAGS += --ftrace_log=$(NPC_TRACE_DIR)/ftrace.log
+NPCFLAGS += --ftrace_stdout
+
 npc: $K/kernel.bin fs.img
-	$(NPC) --image=$K/kernel.bin --fsimg=fs.img --batch --nvboard
+	@mkdir -p $(NPC_TRACE_DIR)
+	$(NPC) $(NPCFLAGS)
 
 .gdbinit: .gdbinit.tmpl-riscv
 	sed "s/:1234/:$(GDBPORT)/" < $^ > $@

@@ -54,10 +54,13 @@ uartinit(void)
   // special mode to set baud rate.
   WriteReg(LCR, LCR_BAUD_LATCH);
 
-  // LSB for baud rate of 38.4K.
-  WriteReg(0, 0x03);
-
-  // MSB for baud rate of 38.4K.
+  // Use divisor = 1 to keep each bit period at 16 clock cycles — the shortest
+  // legal value for the 16550 IP.  On the Verilator/NPC simulator the UART
+  // clock is not a real physical frequency, so the "baud rate" is meaningless
+  // and we simply want to transmit as fast as possible.  This also matches the
+  // AM platform (abstract-machine/.../trm.c) so every binary running on NPC
+  // uses the same UART timing.
+  WriteReg(0, 0x01);
   WriteReg(1, 0x00);
 
   // leave set-baud mode,
