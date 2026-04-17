@@ -62,7 +62,7 @@ OBJCOPY = $(TOOLPREFIX)objcopy
 OBJDUMP = $(TOOLPREFIX)objdump
 
 CFLAGS = -Wall -Werror -Wno-unknown-attributes -O -fno-omit-frame-pointer -ggdb -gdwarf-2
-CFLAGS += -march=rv64g
+CFLAGS += -march=rv64imfd_zicsr_zifencei
 CFLAGS += -MD
 CFLAGS += -mcmodel=medany
 CFLAGS += -ffreestanding
@@ -95,7 +95,7 @@ $K/kernel.bin: $K/kernel
 	$(OBJCOPY) -O binary $K/kernel $K/kernel.bin
 
 $K/%.o: $K/%.S
-	$(CC) -march=rv64g -g -c -o $@ $<
+	$(CC) -march=rv64imfd_zicsr_zifencei -g -c -o $@ $<
 
 tags: $(OBJS)
 	etags kernel/*.S kernel/*.c

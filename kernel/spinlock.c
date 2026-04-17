@@ -25,18 +25,20 @@ acquire(struct spinlock *lk)
   if(holding(lk))
     panic("acquire");
 
-  // On RISC-V, sync_lock_test_and_set turns into an atomic swap:
-  //   a5 = 1
-  //   s1 = &lk->locked
-  //   amoswap.w.aq a5, a5, (s1)
-  while(__sync_lock_test_and_set(&lk->locked, 1) != 0)
-    ;
+  // Single-core build: the NPC does not implement the A extension, so we
+  // cannot use amoswap-based test-and-set.  With interrupts disabled and
+  // only one hart, a "busy" lock can never be released from underneath us,
+  // so encountering lk->locked == 1 means the current hart already holds
+  // it (or something is seriously wrong).  Treat that as a deadlock panic
+  // rather than spinning forever.
+  if(lk->locked)
+    panic("acquire: deadlock");
+  lk->locked = 1;
 
-  // Tell the C compiler and the processor to not move loads or stores
-  // past this point, to ensure that the critical section's memory
-  // references happen strictly after the lock is acquired.
-  // On RISC-V, this emits a fence instruction.
-  __sync_synchronize();
+  // Still emit a compiler+hardware memory barrier so the critical section's
+  // memory references don't leak above the lock acquire.  "fence rw,rw"
+  // works on in-order RV64 without needing the A extension.
+  __asm__ volatile ("fence rw,rw" ::: "memory");
 
   // Record info about lock acquisition for holding() and debugging.
   lk->cpu = mycpu();
@@ -51,22 +53,15 @@ release(struct spinlock *lk)
 
   lk->cpu = 0;
 
-  // Tell the C compiler and the CPU to not move loads or stores
-  // past this point, to ensure that all the stores in the critical
-  // section are visible to other CPUs before the lock is released,
-  // and that loads in the critical section occur strictly before
-  // the lock is released.
-  // On RISC-V, this emits a fence instruction.
-  __sync_synchronize();
+  // Still emit a memory barrier to keep the critical section's stores from
+  // sinking past the release.  Plain "fence rw,rw" needs no A extension.
+  __asm__ volatile ("fence rw,rw" ::: "memory");
 
-  // Release the lock, equivalent to lk->locked = 0.
-  // This code doesn't use a C assignment, since the C standard
-  // implies that an assignment might be implemented with
-  // multiple store instructions.
-  // On RISC-V, sync_lock_release turns into an atomic swap:
-  //   s1 = &lk->locked
-  //   amoswap.w zero, zero, (s1)
-  __sync_lock_release(&lk->locked);
+  // Single-core build: no A extension on the NPC, so we can't use the
+  // amoswap-based __sync_lock_release.  A plain store of 0 is fine here
+  // because interrupts are still disabled (pop_off runs after) and there
+  // are no other harts.
+  lk->locked = 0;
 
   pop_off();
 }
