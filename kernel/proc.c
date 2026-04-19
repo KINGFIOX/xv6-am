@@ -448,8 +448,11 @@ scheduler(void)
       release(&p->lock);
     }
     if(found == 0) {
-      // nothing to run; stop running on this core until an interrupt.
-      asm volatile("wfi");
+      // NPC treats wfi as a NOP (see CU.scala), and Spike's in_wfi behavior
+      // does not match that, so we emit a plain nop here to avoid the
+      // difftest divergence.  Semantically the scheduler just busy-waits for
+      // the next timer/ext interrupt.
+      asm volatile("nop");
     }
   }
 }

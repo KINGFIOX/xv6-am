@@ -56,10 +56,20 @@ virtio_disk_rw(struct buf *b, int write)
   *R(SYNC_DISK_PA_LOW)   = (uint32)pa;
   *R(SYNC_DISK_PA_HIGH)  = (uint32)(pa >> 32);
 
+  // Flush D-cache BEFORE the DMA: for a write, pushes dirty buffer bytes out
+  // to SDRAM so the device sees them; for a read, evicts any dirty lines that
+  // would otherwise clobber the DMA-transferred bytes when later written back.
+  asm volatile("fence.i");
+
   *R(SYNC_DISK_CMD) = write ? SYNC_DISK_CMD_WRITE : SYNC_DISK_CMD_READ;
 
   if(*R(SYNC_DISK_STATUS) != SYNC_DISK_STATUS_DONE)
     panic("sync_disk: operation failed");
+
+  // DMA bypasses the D-cache; force a cache flush so the CPU sees the freshly
+  // transferred buffer data (for reads) and any pending dirty writeback hits
+  // memory before handing the buffer back (for writes).
+  asm volatile("fence.i");
 
   release(&disk_lock);
 }

@@ -61,7 +61,7 @@ LD = $(TOOLPREFIX)ld
 OBJCOPY = $(TOOLPREFIX)objcopy
 OBJDUMP = $(TOOLPREFIX)objdump
 
-CFLAGS = -Wall -Werror -Wno-unknown-attributes -O -fno-omit-frame-pointer -ggdb -gdwarf-2
+CFLAGS = -Wall -Werror -Wno-unknown-attributes -O2 -fno-omit-frame-pointer -ggdb -gdwarf-2
 CFLAGS += -march=rv64imfd_zicsr_zifencei
 CFLAGS += -MD
 CFLAGS += -mcmodel=medany
@@ -94,6 +94,7 @@ $K/kernel: $(OBJS) $K/kernel.ld
 $K/kernel.bin: $K/kernel
 	$(OBJCOPY) -O binary $K/kernel $K/kernel.bin
 
+# build
 $K/%.o: $K/%.S
 	$(CC) -march=rv64imfd_zicsr_zifencei -g -c -o $@ $<
 
@@ -203,6 +204,7 @@ NPC = $(NPC_HOME)/build/npc-build/npc
 NPC_TRACE_DIR  ?= build/trace
 BATCH          ?= 1
 NVBOARD        ?= 1
+TRACE          ?= 0
 
 NPCFLAGS  = --image=$K/kernel.bin --fsimg=fs.img
 ifeq ($(BATCH),1)
@@ -212,11 +214,12 @@ ifeq ($(NVBOARD),1)
 NPCFLAGS += --nvboard
 endif
 
+ifeq ($(TRACE),1)
 NPCFLAGS += --itrace_log=$(NPC_TRACE_DIR)/itrace.log
 NPCFLAGS += --dtrace_log=$(NPC_TRACE_DIR)/dtrace.log
 NPCFLAGS += --mtrace_log=$(NPC_TRACE_DIR)/mtrace.log
 NPCFLAGS += --ftrace_log=$(NPC_TRACE_DIR)/ftrace.log
-NPCFLAGS += --ftrace_stdout
+endif
 
 npc: $K/kernel.bin fs.img
 	@mkdir -p $(NPC_TRACE_DIR)

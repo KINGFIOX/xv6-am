@@ -32,8 +32,9 @@ kvmmake(void)
   // virtio mmio disk interface
   kvmmap(kpgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
-  // PLIC
-  kvmmap(kpgtbl, PLIC, PLIC, 0x4000000, PTE_R | PTE_W);
+  // PLIC (xv6 originally maps 64MB; shrink to 4MB to speed up boot in a
+  // slow Verilator simulator — this still covers all used PLIC registers).
+  kvmmap(kpgtbl, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
 
   // map kernel text executable and read-only.
   kvmmap(kpgtbl, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
@@ -160,7 +161,7 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
       return -1;
     if(*pte & PTE_V)
       panic("mappages: remap");
-    *pte = PA2PTE(pa) | perm | PTE_V;
+    *pte = PA2PTE(pa) | perm | PTE_V | PTE_A | PTE_D;
     if(a == last)
       break;
     a += PGSIZE;
