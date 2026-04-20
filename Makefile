@@ -1,6 +1,11 @@
 K=kernel
 U=user
 
+BOOT_OBJS = \
+  $K/boot/start.o \
+  $K/boot/fsbl.o \
+  $K/boot/ssbl.o
+
 OBJS = \
   $K/entry.o \
   $K/start.o \
@@ -86,13 +91,46 @@ endif
 
 LDFLAGS = -z max-page-size=4096
 
-$K/kernel: $(OBJS) $K/kernel.ld
-	$(LD) $(LDFLAGS) -T $K/kernel.ld -o $K/kernel $(OBJS) 
+# NPC SoC address map (mirrors abstract-machine/tools/npc-soc-config.mk).
+# Used by the two-stage boot (FSBL/SSBL) linker script.
+FLASH_BASE = 0x30000000
+FLASH_SIZE = 0x10000000
+SDRAM_BASE = 0x80000000
+SDRAM_SIZE = 0x10000000
+
+BOOT_LD = $K/boot/npc-linker.ld
+BOOT_LDFLAGS = --defsym=_flash_base=$(FLASH_BASE) \
+               --defsym=_flash_size=$(FLASH_SIZE) \
+               --defsym=_sdram_base=$(SDRAM_BASE) \
+               --defsym=_sdram_size=$(SDRAM_SIZE) \
+               -e _bootstart --orphan-handling=warn
+
+# Default $K/kernel target: two-stage boot layout for NPC/NEMU (kernel.bin
+# is placed in flash, FSBL copies SSBL into SDRAM, SSBL copies the xv6
+# kernel into SDRAM and then jumps to _entry).
+$K/kernel: $(BOOT_OBJS) $(OBJS) $(BOOT_LD)
+	$(LD) $(LDFLAGS) $(BOOT_LDFLAGS) -T $(BOOT_LD) -o $K/kernel $(BOOT_OBJS) $(OBJS)
 	$(OBJDUMP) -S $K/kernel > $K/kernel.asm
 	$(OBJDUMP) -t $K/kernel | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $K/kernel.sym
 
+# QEMU's `-kernel` loads the ELF directly at 0x80000000 and does not
+# emulate flash XIP, so keep the original single-stage link for qemu.
+$K/kernel.qemu: $(OBJS) $K/kernel.ld
+	$(LD) $(LDFLAGS) -T $K/kernel.ld -o $K/kernel.qemu $(OBJS)
+	$(OBJDUMP) -S $K/kernel.qemu > $K/kernel.qemu.asm
+	$(OBJDUMP) -t $K/kernel.qemu | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $K/kernel.qemu.sym
+
 $K/kernel.bin: $K/kernel
 	$(OBJCOPY) -O binary $K/kernel $K/kernel.bin
+
+# boot-stage objects (FSBL/SSBL) live under kernel/boot/
+$K/boot/%.o: $K/boot/%.S
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$K/boot/%.o: $K/boot/%.c
+	@mkdir -p $(@D)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 # build
 $K/%.o: $K/%.S
@@ -153,12 +191,15 @@ UPROGS=\
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
 
--include kernel/*.d user/*.d
+-include kernel/*.d kernel/boot/*.d user/*.d
 
 clean: 
 	rm -f *.tex *.dvi *.idx *.aux *.log *.ind *.ilg \
 	*/*.o */*.d */*.asm */*.sym \
-	$K/kernel $K/kernel.bin fs.img \
+	$K/boot/*.o $K/boot/*.d \
+	$K/kernel $K/kernel.bin \
+	$K/kernel.qemu $K/kernel.qemu.asm $K/kernel.qemu.sym \
+	fs.img \
 	mkfs/mkfs .gdbinit \
         $U/usys.S \
 	$(UPROGS)
@@ -173,18 +214,23 @@ ifndef CPUS
 CPUS := 1
 endif
 
-QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
+QEMUOPTS = -machine virt -bios none -kernel $K/kernel.qemu -m 128M -smp $(CPUS) -nographic
 QEMUOPTS += -global virtio-mmio.force-legacy=false
 QEMUOPTS += -drive file=fs.img,if=none,format=raw,id=x0
 QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
 
-qemu: check-qemu-version $K/kernel fs.img
+qemu: check-qemu-version $K/kernel.qemu fs.img
 	$(QEMU) $(QEMUOPTS)
 
 NEMU = $(NEMU_HOME)/build/nemu
 
+# The two-stage boot image is linked to execute in place from flash
+# (FLASH_BASE=0x30000000). Tell NEMU to load the .bin into flash and
+# start executing from there so FSBL runs XIP, exactly like AM.
 nemu: $K/kernel.bin fs.img
-	$(NEMU) --image=$K/kernel.bin --fsimg=fs.img --batch
+	$(NEMU) --image=$K/kernel.bin --fsimg=fs.img \
+	        --image_base=$(FLASH_BASE) --start_pc=$(FLASH_BASE) \
+	        --batch
 
 NPC = $(NPC_HOME)/build/npc-build/npc
 
@@ -228,7 +274,7 @@ npc: $K/kernel.bin fs.img
 .gdbinit: .gdbinit.tmpl-riscv
 	sed "s/:1234/:$(GDBPORT)/" < $^ > $@
 
-qemu-gdb: $K/kernel .gdbinit fs.img
+qemu-gdb: $K/kernel.qemu .gdbinit fs.img
 	@echo "*** Now run 'gdb' in another window." 1>&2
 	$(QEMU) $(QEMUOPTS) -S $(QEMUGDB)
 
